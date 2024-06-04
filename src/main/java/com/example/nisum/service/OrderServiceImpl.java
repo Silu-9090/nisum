@@ -24,6 +24,9 @@ public class OrderServiceImpl implements OrderService {
     
     @Autowired
     private OfferRepository offerRepository;
+    
+    @Autowired
+    private KafkaProducerService kafkaProducerService;
 
     @Override
     public OrderResponse saveOrder(OrderRequest request) {
@@ -49,6 +52,10 @@ public class OrderServiceImpl implements OrderService {
         orderResponse.setItems(items);
         orderResponse.setOrderTotal(totalOrderAmount);
         orderResponse.setPromoCode(request.getPromoCode());
+        
+        kafkaProducerService.sendMessage(orderResponse);
+        
+        System.out.println("Message Published to kafka topic");
 
         return orderResponse;
     }
