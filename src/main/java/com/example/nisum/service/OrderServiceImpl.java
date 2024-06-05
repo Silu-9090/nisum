@@ -12,18 +12,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.example.nisum.entity.Offer;
+import com.example.nisum.entity.OrderDiscountEntity;
+import com.example.nisum.entity.OrderResponseEntity;
+import com.example.nisum.entity.ResponseItemEntity;
 import com.example.nisum.model.Item;
 import com.example.nisum.model.OrderDiscount;
 import com.example.nisum.model.OrderRequest;
 import com.example.nisum.model.OrderResponse;
 import com.example.nisum.model.ResponseItem;
 import com.example.nisum.repository.OfferRepository;
+import com.example.nisum.repository.OrderResponseRepository;
 
 @Service
 public class OrderServiceImpl implements OrderService {
     
     @Autowired
     private OfferRepository offerRepository;
+    
+    @Autowired
+    private OrderResponseRepository orderResponseRepository;
     
     @Autowired
     private KafkaProducerService kafkaProducerService;
@@ -53,11 +60,46 @@ public class OrderServiceImpl implements OrderService {
         orderResponse.setOrderTotal(totalOrderAmount);
         orderResponse.setPromoCode(request.getPromoCode());
         
+        //save Order reponse to postgre
+        OrderResponseEntity orderResponseEntity = convertToOrderResponseEntity(orderResponse);
+        orderResponseRepository.save(orderResponseEntity);
+        
+        //publish Order response to kafka topic
         kafkaProducerService.sendMessage(orderResponse);
         
         System.out.println("Message Published to kafka topic");
 
         return orderResponse;
+    }
+    
+    private OrderResponseEntity convertToOrderResponseEntity(OrderResponse orderResponse) {
+        OrderResponseEntity entity = new OrderResponseEntity();
+        entity.setOrderNumber(orderResponse.getOrderNumber());
+        entity.setOrderTotal(orderResponse.getOrderTotal());
+        entity.setPromoCode(orderResponse.getPromoCode());
+
+        List<ResponseItemEntity> itemEntities = orderResponse.getItems().stream()
+                .map(this::convertToResponseItemEntity)
+                .collect(Collectors.toList());
+        entity.setItems(itemEntities);
+
+        return entity;
+    }
+
+    private ResponseItemEntity convertToResponseItemEntity(ResponseItem responseItem) {
+        ResponseItemEntity entity = new ResponseItemEntity();
+        entity.setItemCode(responseItem.getItemCode());
+        entity.setProductGroupName(responseItem.getProductGroupName());
+        entity.setQty(responseItem.getQty());
+        entity.setUnitPrice(responseItem.getUnitPrice());
+
+        OrderDiscountEntity discountEntity = new OrderDiscountEntity();
+        discountEntity.setAmount(responseItem.getDiscount().getAmount());
+        discountEntity.setOffersApplied(responseItem.getDiscount().getOffersApplied());
+
+        entity.setDiscount(discountEntity);
+
+        return entity;
     }
 
     private ResponseItem validateAndApplyOffer(Item item, Offer offer) {
