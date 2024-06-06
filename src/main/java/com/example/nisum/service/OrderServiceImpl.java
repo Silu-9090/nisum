@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import com.example.nisum.entity.Offer;
@@ -38,7 +39,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse saveOrder(OrderRequest request) {
 
-        List<Offer> offers = offerRepository.findByOfferIdIn(request.getOffers());
+    	List<Offer> offers = getOffersFromCache(request.getOffers());
         List<ResponseItem> items = request.getItems().stream()
                 .flatMap(item -> request.getOffers().stream()
                         .map(offerId -> offers.stream()
@@ -72,7 +73,13 @@ public class OrderServiceImpl implements OrderService {
         return orderResponse;
     }
     
-    private OrderResponseEntity convertToOrderResponseEntity(OrderResponse orderResponse) {
+    @Cacheable(value = "offerCache", key = "#offerIds")
+    private List<Offer> getOffersFromCache(List<String> offerIds) {
+    	System.out.println("Fetching offers from Mongodb");
+		return offerRepository.findByOfferIdIn(offerIds);
+	}
+
+	private OrderResponseEntity convertToOrderResponseEntity(OrderResponse orderResponse) {
         OrderResponseEntity entity = new OrderResponseEntity();
         entity.setOrderNumber(orderResponse.getOrderNumber());
         entity.setOrderTotal(orderResponse.getOrderTotal());
