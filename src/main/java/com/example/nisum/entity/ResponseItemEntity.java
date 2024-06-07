@@ -9,11 +9,13 @@ import javax.persistence.JoinColumn;
 import javax.persistence.OneToOne;
 import javax.persistence.Table;
 
+import lombok.Builder;
 import lombok.Data;
 
 @Entity
 @Table(name = "response_items")
 @Data
+@Builder
 public class ResponseItemEntity {
 
 	@Id

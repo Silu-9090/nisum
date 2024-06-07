@@ -10,12 +10,14 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import com.example.nisum.entity.Offer;
 import com.example.nisum.entity.OrderDiscountEntity;
 import com.example.nisum.entity.OrderResponseEntity;
 import com.example.nisum.entity.ResponseItemEntity;
+import com.example.nisum.exception.OfferNotFoundException;
 import com.example.nisum.model.Item;
 import com.example.nisum.model.OrderDiscount;
 import com.example.nisum.model.OrderRequest;
@@ -24,9 +26,11 @@ import com.example.nisum.model.ResponseItem;
 import com.example.nisum.repository.OfferRepository;
 import com.example.nisum.repository.OrderResponseRepository;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Service
+@Slf4j
 public class OrderServiceImpl implements OrderService {
-    
     @Autowired
     private OfferRepository offerRepository;
     
@@ -38,8 +42,15 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public OrderResponse saveOrder(OrderRequest request) {
-
     	List<Offer> offers = getOffersFromCache(request.getOffers());
+    	if(offers.isEmpty()) {
+    		throw new OfferNotFoundException(
+    				HttpStatus.NOT_FOUND.value(),
+    				HttpStatus.NOT_FOUND.toString(),
+    				"Offers Not found for requested Ids"
+    				);
+    	}
+    	
         List<ResponseItem> items = request.getItems().stream()
                 .flatMap(item -> request.getOffers().stream()
                         .map(offerId -> offers.stream()
@@ -55,11 +66,12 @@ public class OrderServiceImpl implements OrderService {
                 .mapToDouble(item -> (item.getQty() * item.getUnitPrice()) - item.getDiscount().getAmount())
                 .sum();
 
-        OrderResponse orderResponse = new OrderResponse();
-        orderResponse.setOrderNumber(request.getOrderNumber());
-        orderResponse.setItems(items);
-        orderResponse.setOrderTotal(totalOrderAmount);
-        orderResponse.setPromoCode(request.getPromoCode());
+        OrderResponse orderResponse = OrderResponse.builder()
+        		.orderNumber(request.getOrderNumber())
+        		.items(items)
+        		.orderTotal(totalOrderAmount)
+        		.promoCode(request.getPromoCode())
+        		.build();
         
         //save Order reponse to postgre
         OrderResponseEntity orderResponseEntity = convertToOrderResponseEntity(orderResponse);
@@ -67,44 +79,45 @@ public class OrderServiceImpl implements OrderService {
         
         //publish Order response to kafka topic
         kafkaProducerService.sendMessage(orderResponse);
+        log.info("Message Published to Kafka topic: {}", orderResponse);
         
-        System.out.println("Message Published to kafka topic");
-
         return orderResponse;
     }
     
     @Cacheable(value = "offerCache", key = "#offerIds")
     private List<Offer> getOffersFromCache(List<String> offerIds) {
-    	System.out.println("Fetching offers from Mongodb");
+    	log.info("Fetching offers from MongoDB for offer IDs: {}", offerIds);
 		return offerRepository.findByOfferIdIn(offerIds);
 	}
 
 	private OrderResponseEntity convertToOrderResponseEntity(OrderResponse orderResponse) {
-        OrderResponseEntity entity = new OrderResponseEntity();
-        entity.setOrderNumber(orderResponse.getOrderNumber());
-        entity.setOrderTotal(orderResponse.getOrderTotal());
-        entity.setPromoCode(orderResponse.getPromoCode());
-
-        List<ResponseItemEntity> itemEntities = orderResponse.getItems().stream()
+		List<ResponseItemEntity> itemEntities = orderResponse.getItems().stream()
                 .map(this::convertToResponseItemEntity)
                 .collect(Collectors.toList());
-        entity.setItems(itemEntities);
+		
+        OrderResponseEntity entity = OrderResponseEntity.builder()
+        		.orderNumber(orderResponse.getOrderNumber())
+        		.orderTotal(orderResponse.getOrderTotal())
+        		.promoCode(orderResponse.getPromoCode())
+        		.items(itemEntities)
+        		.build();
 
         return entity;
     }
 
     private ResponseItemEntity convertToResponseItemEntity(ResponseItem responseItem) {
-        ResponseItemEntity entity = new ResponseItemEntity();
-        entity.setItemCode(responseItem.getItemCode());
-        entity.setProductGroupName(responseItem.getProductGroupName());
-        entity.setQty(responseItem.getQty());
-        entity.setUnitPrice(responseItem.getUnitPrice());
-
-        OrderDiscountEntity discountEntity = new OrderDiscountEntity();
-        discountEntity.setAmount(responseItem.getDiscount().getAmount());
-        discountEntity.setOffersApplied(responseItem.getDiscount().getOffersApplied());
-
-        entity.setDiscount(discountEntity);
+    	OrderDiscountEntity discountEntity = OrderDiscountEntity.builder()
+        		.amount(responseItem.getDiscount().getAmount())
+        		.offersApplied(responseItem.getDiscount().getOffersApplied())
+        		.build();
+    	
+        ResponseItemEntity entity = ResponseItemEntity.builder()
+        		.itemCode(responseItem.getItemCode())
+        		.productGroupName(responseItem.getProductGroupName())
+        		.qty(responseItem.getQty())
+        		.unitPrice(responseItem.getUnitPrice())
+        		.discount(discountEntity)
+        		.build();
 
         return entity;
     }
@@ -118,22 +131,23 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private ResponseItem createResponseItemWithDiscount(Item item, Offer offer) {
-        ResponseItem responseItem = new ResponseItem();
-        OrderDiscount discount = new OrderDiscount();
-        discount.setAmount(offer.getBenefit().getDiscount().getDiscountProducts().getDiscountValue());
-        discount.setOffersApplied(Collections.singletonList(offer.getOfferId()));
-
-        responseItem.setItemCode(item.getItemCode());
-        responseItem.setProductGroupName(item.getProductGroupName());
-        responseItem.setQty(item.getQty());
-        responseItem.setUnitPrice(item.getUnitPrice());
-        responseItem.setDiscount(discount);
+        OrderDiscount discount = OrderDiscount.builder()
+        		.amount(offer.getBenefit().getDiscount().getDiscountProducts().getDiscountValue())
+        		.offersApplied(Collections.singletonList(offer.getOfferId()))
+        		.build();
+        
+        ResponseItem responseItem = ResponseItem.builder()
+        		.itemCode(item.getItemCode())
+        		.productGroupName(item.getProductGroupName())
+        		.qty(item.getQty())
+        		.unitPrice(item.getUnitPrice())
+        		.discount(discount)
+        		.build();
 
         return responseItem;
     }
 
     private boolean validateOrder(Item item, Offer offer) {
-
         LocalDateTime orderDate = LocalDateTime.now();
 
         ChronoLocalDateTime<?> offerStartDate = convertStringToChronoLocalDateTime(offer.getOfferStartDate());
@@ -159,16 +173,18 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private ResponseItem createResponseItemWithoutDiscount(Item item) {
-        ResponseItem responseItem = new ResponseItem();
-        OrderDiscount discount = new OrderDiscount();
-        discount.setAmount(0);
-        discount.setOffersApplied(Collections.emptyList());
-
-        responseItem.setItemCode(item.getItemCode());
-        responseItem.setProductGroupName(item.getProductGroupName());
-        responseItem.setQty(item.getQty());
-        responseItem.setUnitPrice(item.getUnitPrice());
-        responseItem.setDiscount(discount);
+        OrderDiscount discount = OrderDiscount.builder()
+        		.amount(0)
+        		.offersApplied(Collections.emptyList())
+        		.build();
+        
+        ResponseItem responseItem = ResponseItem.builder()
+        		.itemCode(item.getItemCode())
+        		.productGroupName(item.getProductGroupName())
+        		.qty(item.getQty())
+        		.unitPrice(item.getUnitPrice())
+        		.discount(discount)
+        		.build();
 
         return responseItem;
     }

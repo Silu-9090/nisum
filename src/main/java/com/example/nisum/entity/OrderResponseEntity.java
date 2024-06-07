@@ -12,11 +12,13 @@ import javax.persistence.JoinColumn;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
 
+import lombok.Builder;
 import lombok.Data;
 
 @Entity
 @Table(name = "order_response")
 @Data
+@Builder
 public class OrderResponseEntity {
 
 	@Id

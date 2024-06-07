@@ -9,7 +9,7 @@ import com.example.nisum.model.OrderResponse;
 @Service
 public class KafkaProducerService {
 
-	private static final String TOPIC = "order";
+	private static final String TOPIC = "order-topic";
 
     @Autowired
     private KafkaTemplate<String, OrderResponse> kafkaTemplate;

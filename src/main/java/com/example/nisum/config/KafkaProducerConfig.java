@@ -19,19 +19,6 @@ import com.example.nisum.model.OrderResponse;
 
 @Configuration
 public class KafkaProducerConfig {
-
-	@Bean
-	public KafkaAdmin kafkaAdmin() {
-		Map<String, Object> configs = new HashMap<>();
-		configs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-		return new KafkaAdmin(configs);
-	}
-
-	@Bean
-	public NewTopic topicOrder() {
-		return new NewTopic("order", 1, (short) 1);
-	}
-
 	@Bean
 	public ProducerFactory<String, OrderResponse> producerFactory() {
 		Map<String, Object> configProps = new HashMap<>();

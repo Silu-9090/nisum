@@ -12,11 +12,13 @@ import javax.persistence.JoinColumn;
 import javax.persistence.Id;
 import javax.persistence.Table;
 
+import lombok.Builder;
 import lombok.Data;
 
 @Entity
 @Table(name = "order_discount")
 @Data
+@Builder
 public class OrderDiscountEntity {
 
 	@Id
